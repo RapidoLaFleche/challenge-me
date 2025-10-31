@@ -3,6 +3,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
 import '../../models/challenge.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ChallengeUploadScreen extends StatefulWidget {
   final Challenge challenge;
@@ -87,79 +89,134 @@ class _ChallengeUploadScreenState extends State<ChallengeUploadScreen> {
   }
 
   Future<void> _uploadAndSubmit() async {
-    if (_selectedMedia == null || _mediaType == null) {
+  if (_selectedMedia == null || _mediaType == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Sélectionne une photo ou vidéo !'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
+
+  // Demander la visibilité
+  final visibility = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.grey[900],
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (context) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Qui peut voir ce post ?',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 24),
+          ListTile(
+            leading: const Icon(Icons.public, color: Colors.white),
+            title: const Text(
+              'Tout le monde',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            subtitle: Text(
+              'Visible par tous les utilisateurs',
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            ),
+            onTap: () => Navigator.pop(context, 'public'),
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            leading: const Icon(Icons.people, color: Colors.white),
+            title: const Text(
+              'Seulement vos amis',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            subtitle: Text(
+              'Visible par vos amis uniquement',
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            ),
+            onTap: () => Navigator.pop(context, 'friends'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (visibility == null) return;
+
+  setState(() => _isUploading = true);
+
+  try {
+    final userId = supabase.auth.currentUser!.id;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final extension = _selectedMedia!.path.split('.').last;
+    final fileName = '$userId-${widget.challenge.id}-$timestamp.$extension';
+
+    // Upload du fichier
+    final bytes = await File(_selectedMedia!.path).readAsBytes();
+    
+    await supabase.storage
+        .from('posts-media')
+        .uploadBinary(fileName, bytes);
+
+    // Récupérer l'URL publique
+    final mediaUrl = supabase.storage
+        .from('posts-media')
+        .getPublicUrl(fileName);
+
+    // Créer le post avec la visibilité
+    await supabase.from('posts').insert({
+      'user_id': userId,
+      'challenge_id': widget.challenge.dailyChallengeId,
+      'media_url': mediaUrl,
+      'media_type': _mediaType,
+      'status': 'pending',
+      'visibility': visibility,
+    });
+
+
+    // Marquer le défi comme complété
+    await supabase
+        .from('daily_challenges')
+        .update({'completed': true})
+        .eq('id', widget.challenge.dailyChallengeId!);
+
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sélectionne une photo ou vidéo !'),
+          content: Text('✅ Défi envoyé ! En attente de validation...'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      widget.onCompleted();
+      Navigator.pop(context);
+    }
+  } catch (e) {
+    print('Erreur upload: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: $e'),
           backgroundColor: Colors.red,
         ),
       );
-      return;
     }
-
-    setState(() => _isUploading = true);
-
-    try {
-      final userId = supabase.auth.currentUser!.id;
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = _selectedMedia!.path.split('.').last;
-      final fileName = '$userId-${widget.challenge.id}-$timestamp.$extension';
-
-      // 1. Upload du fichier dans Supabase Storage
-      final bytes = await File(_selectedMedia!.path).readAsBytes();
-      
-      await supabase.storage
-          .from('posts-media')
-          .uploadBinary(fileName, bytes);
-
-      // 2. Récupérer l'URL publique
-      final mediaUrl = supabase.storage
-          .from('posts-media')
-          .getPublicUrl(fileName);
-
-      // 3. Créer le post dans la DB
-      await supabase.from('posts').insert({
-        'user_id': userId,
-        'challenge_id': widget.challenge.dailyChallengeId,
-        'media_url': mediaUrl,
-        'media_type': _mediaType,
-        'status': 'pending',
-      });
-
-      // 4. Marquer le défi comme complété
-      await supabase
-          .from('daily_challenges')
-          .update({'completed': true})
-          .eq('id', widget.challenge.dailyChallengeId!);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Défi envoyé ! En attente de validation...'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-
-        widget.onCompleted();
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      print('Erreur upload: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isUploading = false);
-      }
+  } finally {
+    if (mounted) {
+      setState(() => _isUploading = false);
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {

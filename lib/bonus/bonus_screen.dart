@@ -434,7 +434,7 @@ class _BonusScreenState extends State<BonusScreen> {
                 onTap: _uploadSubmission,
                 child: Container(
                   width: double.infinity,
-                  height: 200,
+                  height: 100,
                   decoration: BoxDecoration(
                     color: Colors.grey[800],
                     borderRadius: BorderRadius.circular(16),
@@ -444,17 +444,7 @@ class _BonusScreenState extends State<BonusScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.add_a_photo, color: Colors.white, size: 50),
-                        SizedBox(height: 16),
-                        Text(
-                          'VIDEO / PHOTO\nDU CHALLENGE\nRÉALISÉ',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        Icon(Icons.add_a_photo, color: Colors.white, size: 40),
                       ],
                     ),
                   ),
@@ -489,7 +479,6 @@ class _BonusScreenState extends State<BonusScreen> {
 
             const SizedBox(height: 32),
 
-            // Liste des posts validés
             if (submissions.isNotEmpty) ...[
               Row(
                 children: [
@@ -510,7 +499,7 @@ class _BonusScreenState extends State<BonusScreen> {
             ] else ...[
               Center(
                 child: Text(
-                  'Aucune soumission validée pour le moment',
+                  'Aucune soumission validée pour le moment...',
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,

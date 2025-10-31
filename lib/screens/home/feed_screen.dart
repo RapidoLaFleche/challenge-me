@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 import '../../models/challenge.dart';
+import '/widgets/user_profile_modal.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -22,28 +23,94 @@ class _FeedScreenState extends State<FeedScreen> {
     _loadPosts();
   }
 
+  String currentFilter = 'all'; // 'all' ou 'following'
+
   Future<void> _loadPosts() async {
     setState(() => isLoading = true);
 
     try {
       final currentUserId = supabase.auth.currentUser?.id;
+      if (currentUserId == null) {
+        setState(() => isLoading = false);
+        return;
+      }
 
-      // Récupérer les posts approuvés avec les infos nécessaires
-      final response = await supabase
+      List<String> followingIds = [];
+      if (currentFilter == 'following') {
+        final followingResponse = await supabase
+            .from('follows')
+            .select('following_id')
+            .eq('follower_id', currentUserId);
+
+        followingIds = (followingResponse as List)
+            .map((item) => item['following_id'] as String)
+            .toList();
+
+        if (followingIds.isEmpty) {
+          setState(() {
+            posts = [];
+            isLoading = false;
+          });
+          return;
+        }
+      }
+
+      var query = supabase
           .from('posts')
           .select('''
             *,
             profiles:user_id(username, avatar_url),
             daily_challenges(defis(nom))
           ''')
-          .eq('status', 'approved')
-          .order('posted_at', ascending: false);
+          .eq('status', 'approved');
 
-      // Pour chaque post, compter les likes
+      // Filtrer par visibility : 
+      // - Si "public" : tout le monde peut voir
+      // - Si "friends" : seulement les amis (ceux qu'on suit ET qui nous suivent)
+      if (currentFilter == 'all') {
+        // Afficher tous les posts publics + les posts "friends" de nos amis
+        // On va gérer ça après avoir récupéré les posts
+      } else {
+        // Seulement les posts des personnes suivies
+        query = query.inFilter('user_id', followingIds);
+      }
+
+      final response = await query.order('posted_at', ascending: false);
+
+      // Filtrer les posts selon la visibility
       List<PostWithLikes> allPosts = [];
 
       for (var item in response) {
         final postId = item['id'] as int;
+        final postUserId = item['user_id'] as String;
+        final visibility = item['visibility'] ?? 'public';
+
+        // Vérifier si on peut voir ce post
+        bool canViewPost = false;
+
+        if (visibility == 'public') {
+          canViewPost = true;
+        } else if (visibility == 'friends') {
+          // Vérifier si on suit ET qu'on est suivi par cette personne (amis mutuels)
+          final weFollowThem = await supabase
+              .from('follows')
+              .select('id')
+              .eq('follower_id', currentUserId)
+              .eq('following_id', postUserId)
+              .maybeSingle();
+
+          final theyFollowUs = await supabase
+              .from('follows')
+              .select('id')
+              .eq('follower_id', postUserId)
+              .eq('following_id', currentUserId)
+              .maybeSingle();
+
+          canViewPost = (weFollowThem != null && theyFollowUs != null) || 
+                        postUserId == currentUserId; // On peut toujours voir nos propres posts
+        }
+
+        if (!canViewPost) continue;
 
         // Compter les likes
         final likesResponse = await supabase
@@ -53,23 +120,30 @@ class _FeedScreenState extends State<FeedScreen> {
 
         final likesCount = (likesResponse as List).length;
 
+        // Compter les commentaires
+        final commentsResponse = await supabase
+            .from('comments')
+            .select('id')
+            .eq('post_id', postId);
+
+        final commentsCount = (commentsResponse as List?)?.length ?? 0;
+
+
         // Vérifier si l'user actuel a liké
         bool isLiked = false;
-        if (currentUserId != null) {
-          final userLikeResponse = await supabase
-              .from('post_likes')
-              .select('id')
-              .eq('post_id', postId)
-              .eq('user_id', currentUserId)
-              .maybeSingle();
+        final userLikeResponse = await supabase
+            .from('post_likes')
+            .select('id')
+            .eq('post_id', postId)
+            .eq('user_id', currentUserId)
+            .maybeSingle();
 
-          isLiked = userLikeResponse != null;
-        }
+        isLiked = userLikeResponse != null;
 
         allPosts.add(PostWithLikes(
           post: Post(
             id: postId,
-            userId: item['user_id'],
+            userId: postUserId,
             username: item['profiles']?['username'] ?? 'Anonyme',
             avatarUrl: item['profiles']?['avatar_url'],
             challengeId: item['challenge_id'],
@@ -81,6 +155,7 @@ class _FeedScreenState extends State<FeedScreen> {
           ),
           likesCount: likesCount,
           isLikedByCurrentUser: isLiked,
+          commentsCount: commentsCount,
         ));
 
         if (isLiked) {
@@ -167,6 +242,23 @@ class _FeedScreenState extends State<FeedScreen> {
           ),
         ),
         centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildFilterButton('Tout le monde', 'all'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildFilterButton('Suivis', 'following'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: _loadPosts,
@@ -181,6 +273,33 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
+  Widget _buildFilterButton(String label, String filter) {
+    final isSelected = currentFilter == filter;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() => currentFilter = filter);
+        _loadPosts();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.grey[900],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isSelected ? Colors.black : Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPostsList() {
     if (posts.isEmpty) {
       return Center(
@@ -190,7 +309,7 @@ class _FeedScreenState extends State<FeedScreen> {
             Icon(Icons.inbox, size: 110, color: const Color.fromARGB(255, 255, 255, 255)),
             const SizedBox(height: 20),
             Text(
-              'Aucun post n\'a encore été publié aujour\'hui.',
+              'Aucun post pour l\'instant.',
               style: TextStyle(color: const Color.fromARGB(255, 255, 255, 255), fontSize: 16),
             ),
             Text(
@@ -209,14 +328,18 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
+  String formatTimeAgo(DateTime dt) {
+      final diff = DateTime.now().difference(dt);
+
+      if (diff.inMinutes < 1) return 'À l\'instant';
+      if (diff.inHours < 1) return '${diff.inMinutes}min';
+      if (diff.inHours < 24) return '${diff.inHours}h';
+      return '${diff.inDays}j';
+    }
+
   Widget _buildPostCard(PostWithLikes postWithLikes) {
     final post = postWithLikes.post;
-    final timeDiff = DateTime.now().difference(post.postedAt);
-    String timeAgo = timeDiff.inMinutes < 1
-        ? 'À l\'instant'
-        : (timeDiff.inHours < 1
-            ? '${timeDiff.inMinutes}min'
-            : '${timeDiff.inHours}h');
+    String timeAgo = formatTimeAgo(post.postedAt);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -228,52 +351,65 @@ class _FeedScreenState extends State<FeedScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Colors.white,
-                  backgroundImage: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
-                      ? NetworkImage(post.avatarUrl!)
-                      : null,
-                  child: post.avatarUrl == null || post.avatarUrl!.isEmpty
-                      ? Text(
-                          (post.username.isNotEmpty ? post.username[0] : '?').toUpperCase(),
+          // Header (CLIQUABLE)
+          GestureDetector(
+            onTap: () {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => UserProfileModal(
+                  userId: post.userId,
+                  username: post.username,
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.white,
+                    backgroundImage: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
+                        ? NetworkImage(post.avatarUrl!)
+                        : null,
+                    child: post.avatarUrl == null || post.avatarUrl!.isEmpty
+                        ? Text(
+                            (post.username.isNotEmpty ? post.username[0] : '?').toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          post.username,
                           style: const TextStyle(
-                            color: Colors.black,
+                            color: Colors.white,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        post.username,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        post.challengeName,
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          post.challengeName,
+                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Text(
-                  timeAgo,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
+                  Text(
+                    timeAgo,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -371,15 +507,24 @@ class _FeedScreenState extends State<FeedScreen> {
                   onTap: () => _openComments(post),
                   child: Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.chat_bubble_outline,
                         color: Colors.white,
                         size: 26,
                       ),
                       const SizedBox(width: 8),
+                      Text(
+                        '${postWithLikes.commentsCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ),
+
               ],
             ),
           ),
@@ -492,12 +637,14 @@ class _FullScreenVideoPlayerState extends State<_FullScreenVideoPlayer> {
 class PostWithLikes {
   final Post post;
   int likesCount;
+  int commentsCount;
   bool isLikedByCurrentUser;
 
   PostWithLikes({
     required this.post,
     required this.likesCount,
     required this.isLikedByCurrentUser,
+    this.commentsCount = 0,
   });
 }
 
@@ -582,10 +729,13 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
   String _formatTimeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
+
     if (diff.inMinutes < 1) return 'À l\'instant';
     if (diff.inHours < 1) return '${diff.inMinutes}min';
-    return '${diff.inHours}h';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    return '${diff.inDays}j';
   }
+
 
   @override
   Widget build(BuildContext context) {

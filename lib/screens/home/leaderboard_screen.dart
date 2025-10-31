@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '/widgets/user_profile_modal.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -205,7 +206,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       medal = '🥉';
     }
 
-    return Container(
+    return GestureDetector(
+    onTap: () {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => UserProfileModal(
+          userId: entry.userId,
+          username: entry.username,
+        ),
+      );
+    },
+
+    child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -344,6 +358,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }

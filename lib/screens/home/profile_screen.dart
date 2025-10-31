@@ -4,6 +4,8 @@ import '../auth/login_screen.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'AdminPostsScreen.dart';
+import '../../widgets/user_profile_modal.dart';
+import 'AdminEventScreen.dart';
 
 const int kPointsPerChallenge = 3;
 
@@ -20,6 +22,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   UserProfileData? _profileData;
   bool _isLoading = true;
   String? _errorMessage;
+  int followersCount = 0;
+  int followingCount = 0;
 
   @override
   void initState() {
@@ -88,7 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .eq('status', 'pending')
             .count(CountOption.exact),
 
-        // challenges complétés aujourd’hui
+        // challenges complétés aujourd'hui
         supabase
             .from('daily_challenges')
             .select('id')
@@ -97,6 +101,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .eq('completed', true)
             .count(CountOption.exact),
       ]);
+
+      // --- ABONNÉS ET ABONNEMENTS ---
+      final followersResponse = await supabase
+          .from('follows')
+          .select('id')
+          .eq('following_id', userId);
+
+      followersCount = (followersResponse as List).length;
+
+      final followingResponse = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', userId);
+
+      followingCount = (followingResponse as List).length;
 
       // --- EXTRACTION DES COUNTS ---
       final approvedCount = results[0].count ?? 0;
@@ -137,6 +156,158 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     }
+  }
+
+  void _showFollowListModal(bool isFollowersList) async {
+    final currentUserId = supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    try {
+      List<Map<String, dynamic>> users;
+
+      if (isFollowersList) {
+        // Abonnés (ceux qui me suivent)
+        final response = await supabase
+            .from('follows')
+            .select('follower_id, profiles!follows_follower_id_fkey(id, username, avatar_url)')
+            .eq('following_id', currentUserId);
+
+        users = (response as List).map((item) {
+          final profile = item['profiles'];
+          return {
+            'id': profile['id'],
+            'username': profile['username'],
+            'avatar_url': profile['avatar_url'],
+          };
+        }).toList();
+      } else {
+        // Abonnements (ceux que je suis)
+        final response = await supabase
+            .from('follows')
+            .select('following_id, profiles!follows_following_id_fkey(id, username, avatar_url)')
+            .eq('follower_id', currentUserId);
+
+        users = (response as List).map((item) {
+          final profile = item['profiles'];
+          return {
+            'id': profile['id'],
+            'username': profile['username'],
+            'avatar_url': profile['avatar_url'],
+          };
+        }).toList();
+      }
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.grey[900],
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(24),
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Column(
+            children: [
+              Text(
+                isFollowersList ? 'Abonnés' : 'Abonnements',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.grey),
+              Expanded(
+                child: users.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Aucun utilisateur',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: users.length,
+                        itemBuilder: (context, index) {
+                          final user = users[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.white,
+                              backgroundImage: user['avatar_url'] != null &&
+                                      user['avatar_url'].isNotEmpty
+                                  ? NetworkImage(user['avatar_url'])
+                                  : null,
+                              child: user['avatar_url'] == null ||
+                                      user['avatar_url'].isEmpty
+                                  ? Text(
+                                      user['username'][0].toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            title: Text(
+                              user['username'],
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            trailing: const Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            onTap: () {
+                              Navigator.pop(context);
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (_) => UserProfileModal(
+                                  userId: user['id'],
+                                  username: user['username'],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      print('Erreur chargement liste: $e');
+    }
+  }
+
+  Widget _buildStatButton(String value, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey[400],
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -299,7 +470,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  
+                  const SizedBox(height: 16),
+
+                  // Abonnés / Abonnements
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildStatButton('$followersCount', 'Abonnés', () {
+                        _showFollowListModal(true);
+                      }),
+                      const SizedBox(width: 32),
+                      _buildStatButton('$followingCount', 'Abonnements', () {
+                        _showFollowListModal(false);
+                      }),
+                    ],
+                  ),
+
                   const SizedBox(height: 20),
+                  
                   // Bouton changer avatar
                   SizedBox(
                     width: 170,
@@ -338,13 +527,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                         try {
                           await Supabase.instance.client
-                              .storage
-                              .from('avatars')
-                              .uploadBinary(
-                                'avatars/${user.id}.png',
-                                await file.readAsBytes(),
-                                fileOptions: const FileOptions(contentType: 'image/png'),
-                              );
+                          .storage
+                          .from('avatars')
+                          .uploadBinary(
+                            'avatars/${user.id}.png',
+                            await file.readAsBytes(),
+                            fileOptions: const FileOptions(
+                              contentType: 'image/png',
+                              upsert: true,
+                            ),
+                          );
 
                           final publicUrl = Supabase.instance.client
                               .storage
@@ -355,6 +547,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               .from('profiles')
                               .update({'avatar_url': publicUrl})
                               .eq('id', user.id);
+
+                          _loadUserStats(); // Recharger pour afficher le nouvel avatar
 
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -612,8 +806,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    side: BorderSide(color: const Color.fromARGB(255, 194, 193, 193), width: 2),
-                    backgroundColor: Colors.blueAccent,
+                    side: BorderSide(color: const Color.fromARGB(255, 80, 80, 80), width: 2),
+                    backgroundColor: const Color.fromARGB(255, 0, 0, 0),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -623,6 +817,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     style: TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CreateEventScreen()),
+                  );
+                },
+                label: const Text("📅"),
+                style: ElevatedButton.styleFrom(
+                    side: BorderSide(color: const Color.fromARGB(255, 65, 65, 65), width: 2),
+                    backgroundColor: const Color.fromARGB(255, 0, 0, 0),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
               ),
             ],
           ],
