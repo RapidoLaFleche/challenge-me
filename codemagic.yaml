@@ -1,0 +1,12 @@
+workflows:
+  ios-workflow:
+    name: iOS Build
+    scripts:
+      - name: Pre-build cleanup and pod setup
+        script: |
+          flutter clean
+          cd ios
+          pod repo update
+          pod deintegrate
+          pod install
+          cd ..
