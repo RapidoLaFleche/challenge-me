@@ -1,7 +1,8 @@
-# Uncomment this line to define a global platform for your project
+# iOS minimum target — nécessaire pour Firebase et Pusher Beams
+source 'https://github.com/CocoaPods/Specs.git'
 platform :ios, '15.0'
 
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+# Empêche les stats Cocoapods
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -12,15 +13,13 @@ project 'Runner', {
 
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first."
-  end
+  raise "#{generated_xcode_build_settings_path} must exist." unless File.exist?(generated_xcode_build_settings_path)
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT=(.*)/)
     return matches[1].strip if matches
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try running flutter pub get again."
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
 end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
@@ -28,19 +27,25 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static  # ✅ important pour Firebase et Beams
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # ✅ Ajout de Firebase + Beams si besoin (facultatif, si pas déjà dans pubspec)
+  pod 'Firebase/Core'
+  pod 'Firebase/Messaging'
+  pod 'PushNotifications', '~> 1.9.0'
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-
-    # ✅ Fix: ensures all pods build for iOS 15+
     target.build_configurations.each do |config|
+      # Forcer la version minimale iOS à 15
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # ✅ Résout les erreurs d’intégration Swift / Obj-C
+      config.build_settings['SWIFT_VERSION'] = '5.0'
     end
   end
 end
