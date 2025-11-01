@@ -1,4 +1,5 @@
 # iOS minimum target — nécessaire pour Firebase et Pusher Beams
+source 'https://github.com/CocoaPods/Specs.git'
 platform :ios, '15.0'
 
 # Empêche les stats Cocoapods
