@@ -1,13 +1,7 @@
-# Minimum iOS version
 platform :ios, '15.0'
-
-# Désactiver les stats CocoaPods
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-# Source des specs
 source 'https://cdn.cocoapods.org/'
 
-# Configuration des builds
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
@@ -43,34 +37,22 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     
     target.build_configurations.each do |config|
-      # iOS 15.0 minimum
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       
-      # ✅ IMPORTANT : Swift 6.0 pour Firebase
-      config.build_settings['SWIFT_VERSION'] = '6.0'
+      # ✅ Swift 5.0 (compatible Xcode 15.0)
+      config.build_settings['SWIFT_VERSION'] = '5.0'
       
-      # Désactiver Bitcode
       config.build_settings['ENABLE_BITCODE'] = 'NO'
-      
-      # Build plus rapide en Debug
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES' if config.name == 'Debug'
-      
-      # Supprimer les warnings
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       
-      # Optimisations Release
       if config.name == 'Release'
         config.build_settings['GCC_OPTIMIZATION_LEVEL'] = 's'
         config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Osize'
-        config.build_settings['SWIFT_COMPILATION_MODE'] = 'wholemodule'
       end
       
-      # Fix Apple Silicon simulator
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-      
-      # ✅ Fix pour Firebase Swift 6
-      config.build_settings['OTHER_SWIFT_FLAGS'] = '$(inherited) -enable-experimental-feature AccessLevelOnImport'
     end
   end
 end
