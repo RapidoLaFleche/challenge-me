@@ -1,53 +1,42 @@
 workflows:
-  ios-debug-workflow:
-    name: iOS Debug Build - ChallengeMe (No Signing)
-    max_build_duration: 120
+  ios-app-workflow:
+    name: iOS .app Build
+    max_build_duration: 60
     instance_type: mac_mini_m1
     environment:
-      vars:
-        BUNDLE_ID: "com.example.demo"
       flutter: stable
       xcode: 15.0
       cocoapods: default
     scripts:
       - name: Get Flutter packages
         script: |
-          flutter packages pub get
+          flutter pub get
       
-      - name: Install CocoaPods dependencies
+      - name: Generate iOS config (IMPORTANT)
         script: |
-          cd ios && pod install && cd ..
+          flutter precache --ios
+          flutter build ios --config-only --no-codesign
       
-      - name: Flutter build iOS (debug - no signing)
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod repo update
+          pod install
+          cd ..
+      
+      - name: Flutter build iOS debug
         script: |
           flutter build ios --debug --no-codesign
       
-      - name: Create xcarchive
+      - name: Zip .app for download
         script: |
-          cd ios
-          xcodebuild -workspace Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Debug \
-            -archivePath build/Runner.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            archive
-      
-      - name: Export IPA (unsigned)
-        script: |
-          cd ios
-          mkdir -p build/ipa
-          cp -r build/Runner.xcarchive/Products/Applications/Runner.app build/ipa/
-          cd build/ipa
-          zip -r Runner.ipa Runner.app
-          mv Runner.ipa ../../../build/ios/ipa/
+          cd build/ios/iphoneos
+          zip -r Runner.zip Runner.app
+          mv Runner.zip ../../
     
     artifacts:
-      - build/ios/ipa/*.ipa
-      - build/**/*.app
-      - ios/build/Runner.xcarchive
+      - build/Runner.zip
+      - build/ios/iphoneos/Runner.app
     
     publishing:
       email:
@@ -55,4 +44,3 @@ workflows:
           - junioryovo2002@gmail.com
         notify:
           success: true
-          failure: true
