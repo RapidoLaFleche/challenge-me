@@ -9,4 +9,4 @@ workflows:
           pod repo update
           pod deintegrate
           pod install
-          cd ..
+          flutter build ios --debug --no-codesign
