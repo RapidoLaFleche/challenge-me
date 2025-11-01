@@ -1,12 +1,58 @@
 workflows:
-  ios-workflow:
-    name: iOS Build
+  ios-debug-workflow:
+    name: iOS Debug Build - ChallengeMe (No Signing)
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        BUNDLE_ID: "com.example.demo"
+      flutter: stable
+      xcode: 15.0
+      cocoapods: default
     scripts:
-      - name: Pre-build cleanup and pod setup
+      - name: Get Flutter packages
         script: |
-          flutter clean
-          cd ios
-          pod repo update
-          pod deintegrate
-          pod install
+          flutter packages pub get
+      
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install && cd ..
+      
+      - name: Flutter build iOS (debug - no signing)
+        script: |
           flutter build ios --debug --no-codesign
+      
+      - name: Create xcarchive
+        script: |
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Debug \
+            -archivePath build/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            archive
+      
+      - name: Export IPA (unsigned)
+        script: |
+          cd ios
+          mkdir -p build/ipa
+          cp -r build/Runner.xcarchive/Products/Applications/Runner.app build/ipa/
+          cd build/ipa
+          zip -r Runner.ipa Runner.app
+          mv Runner.ipa ../../../build/ios/ipa/
+    
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/**/*.app
+      - ios/build/Runner.xcarchive
+    
+    publishing:
+      email:
+        recipients:
+          - junioryovo2002@gmail.com
+        notify:
+          success: true
+          failure: true
