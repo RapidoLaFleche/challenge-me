@@ -1,42 +1,65 @@
 workflows:
-  ios-app-workflow:
-    name: iOS .app Build
-    max_build_duration: 60
+  ios-debug-build:
+    name: iOS Debug Build - ChallengeMe
+    max_build_duration: 90
     instance_type: mac_mini_m1
     environment:
       flutter: stable
-      xcode: 15.0
+      xcode: 15.3 # Version plus récente pour Swift 6
       cocoapods: default
+      vars:
+        BUNDLE_ID: "com.example.demo"
     scripts:
+      - name: Set Flutter version
+        script: |
+          flutter --version
+      
       - name: Get Flutter packages
         script: |
           flutter pub get
       
-      - name: Generate iOS config (IMPORTANT)
+      - name: Generate iOS config files
         script: |
           flutter precache --ios
           flutter build ios --config-only --no-codesign
       
-      - name: Install CocoaPods
+      - name: Clean iOS build cache
         script: |
           cd ios
-          pod repo update
-          pod install
+          rm -rf Pods Podfile.lock .symlinks DerivedData
+          pod cache clean --all
           cd ..
       
-      - name: Flutter build iOS debug
+      - name: Update CocoaPods repo
         script: |
-          flutter build ios --debug --no-codesign
+          pod repo update
       
-      - name: Zip .app for download
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios
+          pod install --verbose
+          cd ..
+      
+      - name: Build iOS app (debug, no signing)
+        script: |
+          flutter build ios --debug --no-codesign --verbose
+      
+      - name: Create .app archive
         script: |
           cd build/ios/iphoneos
-          zip -r Runner.zip Runner.app
-          mv Runner.zip ../../
+          if [ -d "Runner.app" ]; then
+            zip -r ChallengeMe-debug.zip Runner.app
+            mv ChallengeMe-debug.zip ../../../
+            echo "✅ Archive created successfully"
+          else
+            echo "❌ Runner.app not found"
+            exit 1
+          fi
     
     artifacts:
-      - build/Runner.zip
+      - ChallengeMe-debug.zip
       - build/ios/iphoneos/Runner.app
+      - ios/Pods/Manifest.lock
     
     publishing:
       email:
@@ -44,3 +67,4 @@ workflows:
           - junioryovo2002@gmail.com
         notify:
           success: true
+          failure: true
