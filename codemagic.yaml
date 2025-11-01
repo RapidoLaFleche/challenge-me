@@ -5,61 +5,54 @@ workflows:
     instance_type: mac_mini_m1
     environment:
       flutter: stable
-      xcode: 15.3 # Version plus récente pour Swift 6
+      xcode: 15.0
       cocoapods: default
-      vars:
-        BUNDLE_ID: "com.example.demo"
     scripts:
-      - name: Set Flutter version
+      - name: Flutter doctor
         script: |
-          flutter --version
+          flutter doctor -v
       
       - name: Get Flutter packages
         script: |
           flutter pub get
       
-      - name: Generate iOS config files
+      - name: Generate iOS config
         script: |
           flutter precache --ios
           flutter build ios --config-only --no-codesign
       
-      - name: Clean iOS build cache
+      - name: Clean Pods
         script: |
           cd ios
-          rm -rf Pods Podfile.lock .symlinks DerivedData
+          rm -rf Pods Podfile.lock .symlinks
           pod cache clean --all
           cd ..
       
-      - name: Update CocoaPods repo
-        script: |
-          pod repo update
-      
-      - name: Install CocoaPods dependencies
+      - name: Install CocoaPods
         script: |
           cd ios
+          pod repo update
           pod install --verbose
           cd ..
       
-      - name: Build iOS app (debug, no signing)
+      - name: Build iOS (debug, no sign)
         script: |
           flutter build ios --debug --no-codesign --verbose
       
-      - name: Create .app archive
+      - name: Create archive
         script: |
           cd build/ios/iphoneos
           if [ -d "Runner.app" ]; then
-            zip -r ChallengeMe-debug.zip Runner.app
-            mv ChallengeMe-debug.zip ../../../
-            echo "✅ Archive created successfully"
+            zip -r ChallengeMe.zip Runner.app
+            mv ChallengeMe.zip ../../../
           else
-            echo "❌ Runner.app not found"
+            echo "Runner.app not found!"
             exit 1
           fi
     
     artifacts:
-      - ChallengeMe-debug.zip
+      - ChallengeMe.zip
       - build/ios/iphoneos/Runner.app
-      - ios/Pods/Manifest.lock
     
     publishing:
       email:
